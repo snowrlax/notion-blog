@@ -18,43 +18,48 @@ bookRouter.use("/*", async (c, next) => {
     // get the header
     // verify the header
     // if wrong header we return 403 status code 
+    try {
+        const header = c.req.header('Authorization');
+        if (!header) {
+            c.status(401)
+            return c.json({ error: "Unauthorized!!" })
+        }
 
-    const header = c.req.header('Authorization');
-    if (!header) {
-        c.status(401)
-        return c.json({ error: "Unauthorized!!" })
-    }
+        // Bearer token
+        const token = header.split(" ")[1]
 
-    // Bearer token
-    const token = header.split(" ")[1]
+        const response = await verify(token, c.env.JWT_SECRET)
 
-    const response = await verify(token, c.env.JWT_SECRET)
-
-    if (!response.id) {
+        if (!response.id) {
+            c.status(403)
+            return c.json({ error: "unauthorized!" })
+        }
+        c.set('userId', response.id)
+        await next()
+    } catch (e: any) {
         c.status(403)
-        return c.json({ error: "unauthorized!" })
+        return c.json({
+            message: "Invalid token"
+        })
     }
-    c.set('userId', response.id)
-    await next()
+
 })
 
 // create a blog/post 
 bookRouter.post('/', async (c) => {
     const body = await c.req.json()
-    const {success} = createBlogInput.safeParse(body)
-    if(!success) {
-        c.status(411)
-        return c.json({
-            message: "incorrect inputs"
-        })
-    }
-
-    const prisma = new PrismaClient({
-        datasourceUrl: c.env.DATABASE_URL
-    }).$extends(withAccelerate())
-
-
     try {
+        const { success } = createBlogInput.safeParse(body)
+        if (!success) {
+            c.status(411)
+            return c.json({
+                message: "incorrect inputs"
+            })
+        }
+
+        const prisma = new PrismaClient({
+            datasourceUrl: c.env.DATABASE_URL
+        }).$extends(withAccelerate())
         const newpost = await prisma.post.create({
             data: {
                 title: body.title,
@@ -71,7 +76,7 @@ bookRouter.post('/', async (c) => {
         return c.json({ id: newpost.id, message: "post created!" })
     } catch (e) {
         c.status(411)
-        c.json({
+        return c.json({
             error: "post creation failed"
         })
     }
@@ -80,8 +85,8 @@ bookRouter.post('/', async (c) => {
 // update post 
 bookRouter.put('/', async (c) => {
     const body = await c.req.json()
-    const {success} = updateBlogInput.safeParse(body)
-    if(!success) {
+    const { success } = updateBlogInput.safeParse(body)
+    if (!success) {
         c.status(411)
         return c.json({
             message: "incorrect inputs"
@@ -93,7 +98,7 @@ bookRouter.put('/', async (c) => {
     }).$extends(withAccelerate())
 
     const userId = c.get('userId')
-    
+
     try {
         const post = await prisma.post.update({
             where: {
@@ -112,7 +117,7 @@ bookRouter.put('/', async (c) => {
         })
     } catch (e) {
         c.status(411)
-        c.json({
+        return c.json({
             error: "cannot update post"
         })
     }
@@ -124,7 +129,19 @@ bookRouter.get('/bulk', async (c) => {
     }).$extends(withAccelerate())
 
     try {
-        const posts = await prisma.post.findMany({})
+        const posts = await prisma.post.findMany({
+            select: {
+                content: true,
+                title: true,
+                id: true,
+                published: true,
+                author: {
+                    select: {
+                        name: true
+                    }
+                }
+            }
+        })
         c.status(200)
         return c.json(posts)
     } catch (e) {
@@ -145,6 +162,17 @@ bookRouter.get('/:id', async (c) => {
         const response = await prisma.post.findUnique({
             where: {
                 id: postId
+            },
+            select: {
+                id: true,
+                title: true,
+                content: true,
+                published: true,
+                author: {
+                    select: {
+                        name: true
+                    }
+                }
             }
         })
 
